@@ -22,8 +22,10 @@ import argparse
 import sys
 from os import path
 
+# TODO: Also do listings, since Healy-esque pandoc uses those too
+
 # Get command line arguments
-parser = argparse.ArgumentParser(description='Replace !INCLUDE commands with external Markdown files.')
+parser = argparse.ArgumentParser(description='Move all figures and tables to the end.')
 parser.add_argument('input_file', type=argparse.FileType('r'),
                     nargs='?', default=sys.stdin,
                     help='Markdown file to preprocess')
@@ -33,36 +35,38 @@ parser.add_argument('output', type=argparse.FileType('w'),
 args = parser.parse_args()
 
 # Save arguments
-input_text = args.input_file.read()
+input_text = args.input_file.readlines()
 input_name = args.input_file.name
 directory_name = path.dirname(input_name)
 output = args.output
 
+actual_text = []
+figures = []
 
-# ---------------------------------------------------
-# Replace the matched object with its file contents
-# ---------------------------------------------------
-def include(match):
-    # print(match)
-    # The filename match should generally be group 2
-    if match.group(1) is None:
-        filename = match.group(2)
-    else:
-        filename = match.group(1)
+marker_template = '\[@{0} here\]'
 
-    if directory_name:
-        filename = path.join(directory_name, filename)
+def move_to_end(text):
+    for line in text:
+        if re.search('{#fig:', line):
+            figures.append(line)
 
-    # Open the file
-    if path.isfile(filename):
-        with open(filename, 'r') as f:
-            data = f.read()
-        return(data)
+            fig_label = re.search('{#(fig:.*)}', line)
+            marker = marker_template.format(fig_label.group(1))
+            actual_text.append(marker)
+        elif re.search('{#tbl:', line):
+            tbl_label = re.search('{#(tbl:.*)}', line)
+            marker = marker_template.format(tbl_label.group(1))
 
-    # If there's not an actual file there, return the !INCLUDE string
-    return(match.group(0))
+            actual_text.append(line)
+            actual_text.append('')
+            actual_text.append(marker)
+        else:
+            actual_text.append(line)
 
-# Match all instances of !INCLUDE "asdf" and replace with file contents
-result = re.sub("!INCLUDE\s+(?:\"([^\"]+)\"|'([^']+)')", include, input_text)
+    joined_text = '\n'.join([x.replace('\n', '') for x in actual_text])
+    joined_figures = '\n\n'.join([x.strip() for x in figures])
+    return(joined_text + '\n\n# Tables\n\n Manually add tables here' +
+           '\n\n# Figures\n\n' + joined_figures + '\n')
+
 with output as f:
-    f.write(result)
+    f.write(move_to_end(input_text))
